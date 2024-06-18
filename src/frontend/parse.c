@@ -1,6 +1,7 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <string.h>
 
 #include "frontend.h"
 
@@ -30,6 +31,25 @@ static HIR_Block* make_block(Parser* p) {
 
 static int isident(char c) {
     return c == '_' || isalnum(c);
+}
+
+static int check_keyword(char* start, char* end, char* keyword, int kind) {
+    size_t length = end - start;
+
+    if (length == strlen(keyword) && memcmp(start, keyword, length) == 0) {
+        return kind;
+    }
+
+    return TOKEN_IDENTIFIER;
+}
+
+static int identifier_kind(char* start, char* end) {
+    switch (start[0]) {
+        case 'r':
+            return check_keyword(start, end, "return", TOKEN_KEYWORD_RETURN);
+    }
+
+    return TOKEN_IDENTIFIER;
 }
 
 static Token lex(Parser* p) {
@@ -65,7 +85,7 @@ static Token lex(Parser* p) {
                     p->lexer_char++;
                 }
 
-                kind = TOKEN_IDENTIFIER;
+                kind = identifier_kind(start, p->lexer_char);
             }
             break;
 
@@ -119,6 +139,20 @@ static void error_at_token(Parser* p, Token token, char* format, ...) {
 
     printf("\n");
 }
+
+static bool match(Parser* p, int kind, char* description) {
+    Token token = peek(p);
+
+    if (token.kind == kind) {
+        lex(p);
+        return true;
+    }
+
+    error_at_token(p, token, "expected %s", description);
+    return false;
+}
+
+#define REQUIRE(p, kind, description) do { if(!match(p, kind, description)) { return 0; } } while (false)
 
 static HIR_Node* make_node(Parser* p, HIR_Block* block, HIR_OpCode op, int in_count, int data_size) {
     HIR_Node* result = arena_type(p->arena, HIR_Node);
@@ -218,6 +252,64 @@ static HIR_Node* parse_expression(Parser* p, HIR_Block** block) {
     return parse_binary(p, block, 0);
 }
 
+static bool until(Parser* p, int kind) {
+    return peek(p).kind != kind && peek(p).kind != TOKEN_EOF;
+}
+
+static bool parse_statement(Parser* p, HIR_Block** block);
+
+static bool parse_block(Parser* p, HIR_Block** block) {
+    REQUIRE(p, '{', "{");
+
+    while (until(p, '}')) {
+        if (!parse_statement(p, block)) {
+            return false;
+        }
+    }
+
+    REQUIRE(p, '}', "}");
+
+    return true;
+}
+
+static bool parse_statement(Parser* p, HIR_Block** block) {
+    Token token = peek(p);
+
+    switch (token.kind) {
+        default: {
+            if (!parse_expression(p, block)) {
+                return false;
+            }
+
+            REQUIRE(p, ';', ";");
+
+            return true;
+        } break;
+
+        case '{':
+            return parse_block(p, block);
+
+        case TOKEN_KEYWORD_RETURN: {
+            REQUIRE(p, TOKEN_KEYWORD_RETURN, "return");
+
+            HIR_Node* expression = parse_expression(p, block);
+            if (!expression) {
+                return false;
+            }
+
+            REQUIRE(p, ';', ";");
+
+            HIR_Node* node = make_node(p, *block, HIR_OP_RETURN, 1, 0);
+            node->ins[0] = expression;
+
+            HIR_Block* tail = make_block(p);
+            *block = tail;
+
+            return true;
+        } break;
+    }
+}
+
 HIR_Proc* parse(Arena* arena, char* source_path, char* source) {
     Parser p = {
         .arena = arena,
@@ -231,7 +323,7 @@ HIR_Proc* parse(Arena* arena, char* source_path, char* source) {
     HIR_Block* control_flow_head = make_block(&p);
     HIR_Block* control_flow_tail = control_flow_head;
 
-    if (!parse_expression(&p, &control_flow_tail)) {
+    if (!parse_block(&p, &control_flow_tail)) {
         return 0;
     }
 

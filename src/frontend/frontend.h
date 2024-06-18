@@ -6,6 +6,8 @@ enum {
     TOKEN_EOF,
     TOKEN_INT_LITERAL = 256,
     TOKEN_IDENTIFIER,
+
+    TOKEN_KEYWORD_RETURN
 };
 
 typedef struct {
