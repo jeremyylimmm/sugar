@@ -2,14 +2,27 @@
 
 #include "frontend.h"
 
+#define DATA(node, type) (*(type*)node->data)
+
 typedef void(*PrintOverload)(HIR_Node*);
 
 static void print_overload_integer_literal(HIR_Node* node) {
-    printf("%d", *(int*)node->data);
+    printf("%d", DATA(node, int));
+}
+
+static void print_overload_jump(HIR_Node* node) {
+    printf("jmp bb_%d", DATA(node, HIR_Block*)->tid);
+}
+
+static void print_overload_branch(HIR_Node* node) {
+    HIR_Block** array = node->data;
+    printf("br v%d, bb_%d, bb_%d", node->ins[0]->tid, array[0]->tid, array[1]->tid);
 }
 
 static PrintOverload print_overloads[NUM_HIR_OPS] = {
-    [HIR_OP_INTEGER_LITERAL] = print_overload_integer_literal
+    [HIR_OP_INTEGER_LITERAL] = print_overload_integer_literal,
+    [HIR_OP_JUMP] = print_overload_jump,
+    [HIR_OP_BRANCH] = print_overload_branch,
 };
 
 void hir_print(HIR_Proc* proc) {

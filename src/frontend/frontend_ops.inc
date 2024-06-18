@@ -6,3 +6,5 @@ X(MUL, "mul")
 X(DIV, "div")
 
 X(RETURN, "ret")
+X(JUMP, "jmp")
+X(BRANCH, "branch")

@@ -47,6 +47,12 @@ static int identifier_kind(char* start, char* end) {
     switch (start[0]) {
         case 'r':
             return check_keyword(start, end, "return", TOKEN_KEYWORD_RETURN);
+        case 'i':
+            return check_keyword(start, end, "if", TOKEN_KEYWORD_IF);
+        case 'e':
+            return check_keyword(start, end, "else", TOKEN_KEYWORD_ELSE);
+        case 'w':
+            return check_keyword(start, end, "while", TOKEN_KEYWORD_WHILE);
     }
 
     return TOKEN_IDENTIFIER;
@@ -272,6 +278,19 @@ static bool parse_block(Parser* p, HIR_Block** block) {
     return true;
 }
 
+static void jump(Parser* p, HIR_Block* from, HIR_Block* to) {
+    HIR_Node* jmp = make_node(p, from, HIR_OP_JUMP, 0, sizeof(HIR_Block*));
+    *(HIR_Block**)jmp->data = to;
+}
+
+static void branch(Parser* p, HIR_Block* from, HIR_Node* predicate, HIR_Block* head_true, HIR_Block* head_false) {
+    HIR_Node* br = make_node(p, from, HIR_OP_BRANCH, 1, 2 * sizeof(HIR_Block*));
+    br->ins[0] = predicate;
+    HIR_Block** array = br->data;
+    array[0] = head_true;
+    array[1] = head_false;
+}
+
 static bool parse_statement(Parser* p, HIR_Block** block) {
     Token token = peek(p);
 
@@ -304,6 +323,69 @@ static bool parse_statement(Parser* p, HIR_Block** block) {
 
             HIR_Block* tail = make_block(p);
             *block = tail;
+
+            return true;
+        } break;
+
+        case TOKEN_KEYWORD_IF: {
+            REQUIRE(p, TOKEN_KEYWORD_IF, "if");
+
+            HIR_Node* predicate = parse_expression(p, block);
+
+            HIR_Block* head_true = make_block(p);
+            HIR_Block* tail_true = head_true;
+
+            if(!parse_block(p, &tail_true)) {
+                return false;
+            }
+
+            HIR_Block* head_false = make_block(p);
+            HIR_Block* end = head_false;
+
+            if (peek(p).kind == TOKEN_KEYWORD_ELSE) {
+                lex(p);
+
+                HIR_Block* tail_false = head_false;
+                if (!parse_block(p, &tail_false)) {
+                    return false;
+                }
+
+                end = make_block(p);
+                jump(p, tail_false, end);
+            }
+
+            branch(p, *block, predicate, head_true, head_false);
+            jump(p, tail_true, end);
+            *block = end;
+
+            return true;
+        } break;
+
+        case TOKEN_KEYWORD_WHILE: {
+            REQUIRE(p, TOKEN_KEYWORD_WHILE, "while");
+
+            HIR_Block* head_start = make_block(p);
+            HIR_Block* tail_start = head_start;
+
+            HIR_Node* predicate = parse_expression(p, &tail_start);
+            if (!predicate) {
+                return false;
+            }
+
+            HIR_Block* head_body = make_block(p);
+            HIR_Block* tail_body = head_body;
+
+            if (!parse_block(p, &tail_body)) {
+                return false;
+            }
+
+            HIR_Block* end = make_block(p);
+
+            jump(p, *block, head_start);
+            branch(p, tail_start, predicate, head_body, end);
+            jump(p, tail_body, head_start);
+
+            *block = end;
 
             return true;
         } break;
