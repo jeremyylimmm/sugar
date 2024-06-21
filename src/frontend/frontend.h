@@ -1,6 +1,7 @@
 #pragma once
 
 #include "internal.h"
+#include "backend/sb.h"
 
 enum {
     TOKEN_EOF,
@@ -80,3 +81,7 @@ typedef struct {
 HIR_Proc* parse(Arena* arena, char* source_path, char* source);
 void hir_print(HIR_Proc* proc);
 void hir_append(HIR_Block* block, HIR_Node* node);
+
+SB_Proc* hir_lower(SB_Context* context, HIR_Proc* hir_proc);
+
+Scratch get_global_scratch(int conflict_count, Arena** conflicts);
