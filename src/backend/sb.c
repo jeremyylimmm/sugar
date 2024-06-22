@@ -1,17 +1,10 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#include "internal.h"
+#include "sb_internal.h"
 #include "sb.h"
 
 #define ARENA_SIZE (5 * 1024 * 1024)
-
-struct SB_Context {
-    Arena arena;
-    int next_id;
-
-    ScratchLibrary scratch_library;
-};
 
 SB_Context* sb_init() {
     Arena arena = init_arena(ARENA_SIZE, malloc(ARENA_SIZE));

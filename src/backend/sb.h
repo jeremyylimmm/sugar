@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdint.h>
+
 #define X(name, ...) SB_OP_##name,
 typedef enum {
     SB_OP_ILLEGAL,
@@ -72,5 +74,7 @@ void sb_set_phi_inputs(SB_Context* context, SB_Node* phi, SB_Node* region, int i
 
 SB_Node* sb_node_branch_true(SB_Context* context, SB_Node* branch);
 SB_Node* sb_node_branch_false(SB_Context* context, SB_Node* branch);
+
+void sb_opt(SB_Context* context, SB_Proc* proc);
 
 void sb_visualize(SB_Context* context, SB_Proc* proc);

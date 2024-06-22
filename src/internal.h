@@ -44,3 +44,5 @@ void bitset_set(Bitset* set, size_t index);
 void bitset_unset(Bitset* set, size_t index);
 bool bitset_get(Bitset* set, size_t index);
 void bitset_clear(Bitset* set);
+
+uint64_t fnv1a_hash(void* data, size_t length);

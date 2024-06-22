@@ -65,6 +65,8 @@ int main() {
     SB_Proc* lir_proc = hir_lower(sbc, hir_proc);
 
     sb_visualize(sbc, lir_proc);
+    sb_opt(sbc, lir_proc);
+    sb_visualize(sbc, lir_proc);
 
     return 0;
 }

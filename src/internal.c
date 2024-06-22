@@ -93,3 +93,18 @@ void scratch_release(Scratch* scratch) {
     scratch->arena->allocated = scratch->allocated;
     memset(scratch, 0, sizeof(*scratch));
 }
+
+#define FNV_OFFSET_BASIS 0xcbf29ce484222325
+#define FNV_PRIME 0x100000001b3
+
+uint64_t fnv1a_hash(void* data, size_t length) {
+    uint64_t hash = FNV_OFFSET_BASIS;
+
+    for (size_t i = 0; i < length; ++i) {
+        uint8_t byte = ((uint8_t*)data)[i];
+        hash = (hash & ~((uint64_t)0xff)) | ((uint8_t)hash ^ byte);
+        hash *= FNV_PRIME;
+    }
+
+    return hash;
+}
