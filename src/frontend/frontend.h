@@ -12,6 +12,7 @@ enum {
     TOKEN_KEYWORD_IF,
     TOKEN_KEYWORD_ELSE,
     TOKEN_KEYWORD_WHILE,
+    TOKEN_KEYWORD_VAR,
 };
 
 typedef struct {
@@ -56,6 +57,7 @@ struct HIR_Node {
     HIR_Node* prev;
     HIR_Node* next;
 
+    Token token;
     HIR_OpCode op;
 
     int in_count;
@@ -81,6 +83,7 @@ typedef struct {
 HIR_Proc* parse(Arena* arena, char* source_path, char* source);
 void hir_print(HIR_Proc* proc);
 void hir_append(HIR_Block* block, HIR_Node* node);
+void hir_remove(HIR_Node* node);
 
 SB_Proc* hir_lower(SB_Context* context, HIR_Proc* hir_proc);
 

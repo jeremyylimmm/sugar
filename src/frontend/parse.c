@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "frontend.h"
 
@@ -15,6 +16,8 @@ typedef struct {
     Token lexer_cache;
 
     HIR_Block* control_flow_tail;
+
+    Token last_rbrace;
 } Parser;
 
 static HIR_Block* make_block(Parser* p) {
@@ -53,6 +56,8 @@ static int identifier_kind(char* start, char* end) {
             return check_keyword(start, end, "else", TOKEN_KEYWORD_ELSE);
         case 'w':
             return check_keyword(start, end, "while", TOKEN_KEYWORD_WHILE);
+        case 'v':
+            return check_keyword(start, end, "var", TOKEN_KEYWORD_VAR);
     }
 
     return TOKEN_IDENTIFIER;
@@ -146,6 +151,25 @@ static void error_at_token(Parser* p, Token token, char* format, ...) {
     printf("\n");
 }
 
+static String extract_string(Arena* arena, Token token) {
+    char* result = arena_push(arena, token.length + 1);
+
+    memcpy(result, token.start, token.length);
+    result[token.length] = '\0';
+
+    return (String) {
+        .length = token.length,
+        .data = result
+    };
+}
+
+static String token_string_view(Token token) {
+    return (String) {
+        .data = token.start,
+        .length = token.length
+    };
+}
+
 static bool match(Parser* p, int kind, char* description) {
     Token token = peek(p);
 
@@ -160,8 +184,9 @@ static bool match(Parser* p, int kind, char* description) {
 
 #define REQUIRE(p, kind, description) do { if(!match(p, kind, description)) { return 0; } } while (false)
 
-static HIR_Node* make_node(Parser* p, HIR_Block* block, HIR_OpCode op, int in_count, int data_size) {
+static HIR_Node* make_node(Parser* p, HIR_Block* block, HIR_OpCode op, int in_count, int data_size, Token token) {
     HIR_Node* result = arena_type(p->arena, HIR_Node);
+    result->token = token;
     result->op = op;
     result->in_count = in_count;
     result->ins = arena_array(p->arena, HIR_Node*, in_count);
@@ -174,7 +199,106 @@ static HIR_Node* make_node(Parser* p, HIR_Block* block, HIR_OpCode op, int in_co
     return result;
 }
 
-static HIR_Node* parse_primary(Parser* p, HIR_Block** block) {
+typedef struct {
+    int count;
+    int capacity;
+
+    String* keys;
+    HIR_Node** values;
+} SymbolTable;
+
+static void add_symbol_static(int capacity, String* keys, HIR_Node** values, HIR_Node* symbol, String name) {
+    int i = fnv1a_hash(name.data, name.length) % capacity;
+
+    for (int j = 0; j < capacity; ++j) {
+        if (!keys[i].data) {
+            keys[i] = name;
+            values[i] = symbol;
+            return;
+        }
+
+        assert(!strings_identical(keys[i], name));
+
+        i = (i + 1) % capacity;
+    }
+
+    assert(false);
+}
+
+static void add_symbol(SymbolTable* table, HIR_Node* symbol, String name) {
+    if (!table->capacity || load_factor(table->count, table->capacity) > 0.5f)
+    {
+        int new_capacity = table->capacity ? table->capacity * 2 : 8;
+        String* new_keys = calloc(new_capacity, sizeof(String));
+        HIR_Node** new_values = calloc(new_capacity, sizeof(HIR_Node*));
+
+        for (int i = 0; i < table->capacity; ++i) {
+            if (table->keys[i].data) {
+                add_symbol_static(new_capacity, new_keys, new_values, table->values[i], table->keys[i]);
+            }
+        }
+
+        free(table->keys);
+        free(table->values);
+
+        table->capacity = new_capacity;
+        table->keys = new_keys;
+        table->values = new_values;
+    }
+
+    add_symbol_static(table->capacity, table->keys, table->values, symbol, name);
+    table->count++;
+}
+
+static HIR_Node* find_symbol_in_table(SymbolTable* table, String name) {
+    if (!table->capacity) {
+        return 0;
+    }
+
+    int i = fnv1a_hash(name.data, name.length) % table->capacity;
+
+    for (int j = 0; j < table->capacity; ++j) {
+        if (!table->keys[i].data) {
+            return 0;
+        }
+
+        if (strings_identical(table->keys[i], name)) {
+            return table->values[i];
+        }
+
+        i = (i + 1) % table->capacity;
+    }
+
+    return 0;
+}
+
+static void free_symbol_table(SymbolTable* table) {
+    free(table->keys);
+    free(table->values);
+    memset(table, 0, sizeof(*table));
+}
+
+typedef struct Scope Scope;
+struct Scope {
+    Scope* outer;
+    SymbolTable table;
+};
+
+static HIR_Node* find_symbol(Scope* scope, String name) {
+    HIR_Node* result = find_symbol_in_table(&scope->table, name);
+
+    if (result) {
+        return result;
+    }
+
+    if (scope->outer) {
+        return find_symbol(scope->outer, name);
+    }
+
+    return 0;
+}
+
+static HIR_Node* parse_primary(Parser* p, HIR_Block** block, Scope* scope) {
     (void)block;
 
     Token token = peek(p);
@@ -190,8 +314,23 @@ static HIR_Node* parse_primary(Parser* p, HIR_Block** block) {
                 value += token.start[i] - '0';
             }
 
-            HIR_Node* result = make_node(p, *block, HIR_OP_INTEGER_LITERAL, 0, sizeof(int));
+            HIR_Node* result = make_node(p, *block, HIR_OP_INTEGER_LITERAL, 0, sizeof(int), token);
             *(int*)result->data = value;
+
+            return result;
+        } break;
+
+        case TOKEN_IDENTIFIER: {
+            lex(p);
+
+            HIR_Node* var = find_symbol(scope, token_string_view(token));
+            if (!var) {
+                error_at_token(p, token, "symbol does not exist in the current scope");
+                return 0;
+            }
+
+            HIR_Node* result = make_node(p, *block, HIR_OP_LOAD, 1, 0, token);
+            result->ins[0] = var;
 
             return result;
         } break;
@@ -230,8 +369,8 @@ static HIR_OpCode binary_operator(Token operator) {
     }
 }
 
-static HIR_Node* parse_binary(Parser* p, HIR_Block** block, int caller_precedence) {
-    HIR_Node* left = parse_primary(p, block);
+static HIR_Node* parse_binary(Parser* p, HIR_Block** block, Scope* scope, int caller_precedence) {
+    HIR_Node* left = parse_primary(p, block, scope);
     if (!left) {
         return 0;
     }
@@ -239,12 +378,12 @@ static HIR_Node* parse_binary(Parser* p, HIR_Block** block, int caller_precedenc
     while (binary_precedence(peek(p)) > caller_precedence) {
         Token operator = lex(p);
 
-        HIR_Node* right = parse_binary(p, block, binary_precedence(operator));
+        HIR_Node* right = parse_binary(p, block, scope, binary_precedence(operator));
         if (!right) {
             return 0;
         }
 
-        HIR_Node* result = make_node(p, *block, binary_operator(operator), 2, 0);
+        HIR_Node* result = make_node(p, *block, binary_operator(operator), 2, 0, operator);
         result->ins[0] = left;
         result->ins[1] = right;
 
@@ -254,49 +393,106 @@ static HIR_Node* parse_binary(Parser* p, HIR_Block** block, int caller_precedenc
     return left;
 }
 
-static HIR_Node* parse_expression(Parser* p, HIR_Block** block) {
-    return parse_binary(p, block, 0);
+static HIR_Node* address_of(Parser* parser, HIR_Node* node) {
+    switch (node->op) {
+        case HIR_OP_LOAD: {
+            hir_remove(node);
+            return node->ins[0];
+        } break;
+    }
+
+    error_at_token(parser, node->token, "cannot assign this expression");
+    return 0;
+}
+
+static HIR_Node* parse_assign(Parser* p, HIR_Block** block, Scope* scope) {
+    HIR_Node* left = parse_binary(p, block, scope, 0);
+    if (!left) {
+        return 0;
+    }
+
+    if (peek(p).kind == '=') {
+        Token equals = lex(p);
+
+        HIR_Node* right = parse_assign(p, block, scope);
+        if (!right) {
+            return 0;
+        }
+
+        HIR_Node* lvalue = address_of(p, left);
+        if (!lvalue) {
+            return 0;
+        }
+
+        HIR_Node* result = make_node(p, *block, HIR_OP_ASSIGN, 2, 0, equals);
+        result->ins[0] = lvalue;
+        result->ins[1] = right;
+
+        return right;
+    }
+
+    return left;
+}
+
+static HIR_Node* parse_expression(Parser* p, HIR_Block** block, Scope* scope) {
+    return parse_assign(p, block, scope);
 }
 
 static bool until(Parser* p, int kind) {
     return peek(p).kind != kind && peek(p).kind != TOKEN_EOF;
 }
 
-static bool parse_statement(Parser* p, HIR_Block** block);
+static bool parse_statement(Parser* p, HIR_Block** block, Scope* scope);
 
-static bool parse_block(Parser* p, HIR_Block** block) {
+static bool parse_block(Parser* p, HIR_Block** block, Scope* scope) {
+    bool result = true;
+
     REQUIRE(p, '{', "{");
 
+    Scope inner = {
+        .outer = scope,
+    };
+
     while (until(p, '}')) {
-        if (!parse_statement(p, block)) {
-            return false;
+        if (!parse_statement(p, block, &inner)) {
+            result = false;
+            goto exit;
         }
     }
 
-    REQUIRE(p, '}', "}");
+    Token rbrace = peek(p);
 
-    return true;
+    if(!match(p, '}', "}")) {
+        result = false;
+        goto exit;
+    }
+
+    p->last_rbrace = rbrace;
+
+    exit:
+    free_symbol_table(&inner.table);
+    return result;
 }
 
-static void jump(Parser* p, HIR_Block* from, HIR_Block* to) {
-    HIR_Node* jmp = make_node(p, from, HIR_OP_JUMP, 0, sizeof(HIR_Block*));
+static void jump(Parser* p, HIR_Block* from, HIR_Block* to, Token token) {
+    HIR_Node* jmp = make_node(p, from, HIR_OP_JUMP, 0, sizeof(HIR_Block*), token);
     *(HIR_Block**)jmp->data = to;
 }
 
-static void branch(Parser* p, HIR_Block* from, HIR_Node* predicate, HIR_Block* head_true, HIR_Block* head_false) {
-    HIR_Node* br = make_node(p, from, HIR_OP_BRANCH, 1, 2 * sizeof(HIR_Block*));
+static void branch(Parser* p, HIR_Block* from, HIR_Node* predicate, HIR_Block* head_true, HIR_Block* head_false, Token token) {
+    HIR_Node* br = make_node(p, from, HIR_OP_BRANCH, 1, 2 * sizeof(HIR_Block*), token);
     br->ins[0] = predicate;
     HIR_Block** array = br->data;
     array[0] = head_true;
     array[1] = head_false;
 }
 
-static bool parse_statement(Parser* p, HIR_Block** block) {
+static bool parse_statement(Parser* p, HIR_Block** block, Scope* scope) {
     Token token = peek(p);
 
     switch (token.kind) {
         default: {
-            if (!parse_expression(p, block)) {
+            if (!parse_expression(p, block, scope)) {
                 return false;
             }
 
@@ -306,19 +502,19 @@ static bool parse_statement(Parser* p, HIR_Block** block) {
         } break;
 
         case '{':
-            return parse_block(p, block);
+            return parse_block(p, block, scope);
 
         case TOKEN_KEYWORD_RETURN: {
             REQUIRE(p, TOKEN_KEYWORD_RETURN, "return");
 
-            HIR_Node* expression = parse_expression(p, block);
+            HIR_Node* expression = parse_expression(p, block, scope);
             if (!expression) {
                 return false;
             }
 
             REQUIRE(p, ';', ";");
 
-            HIR_Node* node = make_node(p, *block, HIR_OP_RETURN, 1, 0);
+            HIR_Node* node = make_node(p, *block, HIR_OP_RETURN, 1, 0, token);
             node->ins[0] = expression;
 
             HIR_Block* tail = make_block(p);
@@ -330,14 +526,16 @@ static bool parse_statement(Parser* p, HIR_Block** block) {
         case TOKEN_KEYWORD_IF: {
             REQUIRE(p, TOKEN_KEYWORD_IF, "if");
 
-            HIR_Node* predicate = parse_expression(p, block);
+            HIR_Node* predicate = parse_expression(p, block, scope);
 
             HIR_Block* head_true = make_block(p);
             HIR_Block* tail_true = head_true;
 
-            if(!parse_block(p, &tail_true)) {
+            if(!parse_block(p, &tail_true, scope)) {
                 return false;
             }
+
+            Token true_block_rbrace = p->last_rbrace;
 
             HIR_Block* head_false = make_block(p);
             HIR_Block* end = head_false;
@@ -346,16 +544,16 @@ static bool parse_statement(Parser* p, HIR_Block** block) {
                 lex(p);
 
                 HIR_Block* tail_false = head_false;
-                if (!parse_block(p, &tail_false)) {
+                if (!parse_block(p, &tail_false, scope)) {
                     return false;
                 }
 
                 end = make_block(p);
-                jump(p, tail_false, end);
+                jump(p, tail_false, end, p->last_rbrace);
             }
 
-            branch(p, *block, predicate, head_true, head_false);
-            jump(p, tail_true, end);
+            branch(p, *block, predicate, head_true, head_false, token);
+            jump(p, tail_true, end, true_block_rbrace);
             *block = end;
 
             return true;
@@ -367,7 +565,7 @@ static bool parse_statement(Parser* p, HIR_Block** block) {
             HIR_Block* head_start = make_block(p);
             HIR_Block* tail_start = head_start;
 
-            HIR_Node* predicate = parse_expression(p, &tail_start);
+            HIR_Node* predicate = parse_expression(p, &tail_start, scope);
             if (!predicate) {
                 return false;
             }
@@ -375,17 +573,38 @@ static bool parse_statement(Parser* p, HIR_Block** block) {
             HIR_Block* head_body = make_block(p);
             HIR_Block* tail_body = head_body;
 
-            if (!parse_block(p, &tail_body)) {
+            if (!parse_block(p, &tail_body, scope)) {
                 return false;
             }
 
             HIR_Block* end = make_block(p);
 
-            jump(p, *block, head_start);
-            branch(p, tail_start, predicate, head_body, end);
-            jump(p, tail_body, head_start);
+            jump(p, *block, head_start, token);
+            branch(p, tail_start, predicate, head_body, end, token);
+            jump(p, tail_body, head_start, p->last_rbrace);
 
             *block = end;
+
+            return true;
+        } break;
+
+        case TOKEN_KEYWORD_VAR: {
+            REQUIRE(p, TOKEN_KEYWORD_VAR, "var");
+
+            Token name = peek(p);
+            REQUIRE(p, TOKEN_IDENTIFIER, "an identifier");
+
+            REQUIRE(p, ';', ";");
+
+            if (find_symbol(scope, token_string_view(name))) {
+                error_at_token(p, name, "this symbol already exists in the current scope");
+                return false;
+            }
+
+            HIR_Node* node = make_node(p, *block, HIR_OP_VAR, 0, sizeof(String), token);
+            *(String*)node->data = extract_string(p->arena, name);
+
+            add_symbol(&scope->table, node, token_string_view(name));
 
             return true;
         } break;
@@ -405,7 +624,7 @@ HIR_Proc* parse(Arena* arena, char* source_path, char* source) {
     HIR_Block* control_flow_head = make_block(&p);
     HIR_Block* control_flow_tail = control_flow_head;
 
-    if (!parse_block(&p, &control_flow_tail)) {
+    if (!parse_block(&p, &control_flow_tail, 0)) {
         return 0;
     }
 

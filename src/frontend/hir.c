@@ -103,6 +103,28 @@ void hir_append(HIR_Block* block, HIR_Node* node) {
     fix_links(node);
 }
 
+void hir_remove(HIR_Node* node) {
+    assert(node->block);
+
+    if (node->prev) {
+        node->prev->next = node->next;
+    }
+    else {
+        node->block->start = node->next;
+    }
+
+    if (node->next) {
+        node->next->prev = node->prev;
+    }
+    else {
+        node->block->end = node->prev;
+    }
+
+    node->block = 0;
+    node->prev = 0;
+    node->next = 0;
+}
+
 typedef struct {
     int count;
     HIR_Block** data;
@@ -222,7 +244,7 @@ static SB_Node* lower_node(SB_Context* context, SB_Node** mapping, SB_Node** ret
     (void)flow;
     #define GET(node) mapping[node->tid]
 
-    static_assert(NUM_HIR_OPS == 9, "not all hir ops handled");
+    static_assert(NUM_HIR_OPS == 12, "not all hir ops handled");
 
     switch (node->op) {
         default:

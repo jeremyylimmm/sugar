@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <assert.h>
 #include <memory.h>
+#include <string.h>
 
 #define LENGTH(array) (sizeof(array)/sizeof((array)[0]))
 
@@ -46,3 +47,36 @@ bool bitset_get(Bitset* set, size_t index);
 void bitset_clear(Bitset* set);
 
 uint64_t fnv1a_hash(void* data, size_t length);
+
+inline float load_factor(int count, int capacity) {
+    return (float)count/(float)capacity;
+}
+
+typedef struct {
+    char* data;
+    size_t length;
+} String;
+
+inline String make_string(Arena* arena, char* string) {
+    size_t length = strlen(string);
+    char* data = arena_push(arena, length + 1);
+
+    memcpy(data, string, length);
+    data[length] = 0;
+
+    return (String) {
+        .data = data,
+        .length = length
+    };
+}
+
+inline String string_view(char* string) {
+    return (String) {
+        .length = strlen(string),
+        .data = string
+    };
+}
+
+inline bool strings_identical(String a, String b) {
+    return a.length == b.length && memcmp(a.data, b.data, a.length) == 0;
+}

@@ -55,10 +55,6 @@ static bool index_table_set_static(int capacity, int* keys, int* values, HashSlo
     return false;
 }
 
-static float load_factor(int count, int capacity) {
-    return (float)count/(float)capacity;
-}
-
 static void index_table_make_room(IndexTable* table) {
     if (!table->capacity || load_factor(table->count, table->capacity) > 0.5f)
     {
