@@ -1,10 +1,16 @@
 X(NULL, "null")
+
 X(INTEGER_CONSTANT, "int_const")
+
+X(ALLOCA, "alloca")
 
 X(ADD, "add")
 X(SUB, "sub")
 X(MUL, "mul")
 X(SDIV, "sdiv")
+
+X(STORE, "store")
+X(LOAD, "load")
 
 X(START, "start")
 X(END, "end")

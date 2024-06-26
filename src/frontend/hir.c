@@ -254,6 +254,9 @@ static SB_Node* lower_node(SB_Context* context, SB_Node** mapping, SB_Node** ret
         case HIR_OP_INTEGER_LITERAL:
             return sb_node_integer_constant(context, (uint64_t)*(int*)node->data);
 
+        case HIR_OP_VAR:
+            return sb_node_alloca(context);
+
         case HIR_OP_ADD:
             return sb_node_add(context, GET(node->ins[0]), GET(node->ins[1]));
         case HIR_OP_SUB:
@@ -262,6 +265,11 @@ static SB_Node* lower_node(SB_Context* context, SB_Node** mapping, SB_Node** ret
             return sb_node_mul(context, GET(node->ins[0]), GET(node->ins[1]));
         case HIR_OP_DIV:
             return sb_node_sdiv(context, GET(node->ins[0]), GET(node->ins[1]));
+
+        case HIR_OP_ASSIGN:
+            return flow->store = sb_node_store(context, flow->control, flow->store, GET(node->ins[0]), GET(node->ins[1]));
+        case HIR_OP_LOAD:
+            return sb_node_load(context, flow->control, flow->store, GET(node->ins[0]));
 
         case HIR_OP_RETURN:
             *return_value = GET(node->ins[0]);

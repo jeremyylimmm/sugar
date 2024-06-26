@@ -56,10 +56,15 @@ SB_Node* sb_node_end(SB_Context* context, SB_Node* control, SB_Node* store, SB_N
 SB_Node* sb_node_null(SB_Context* context);
 SB_Node* sb_node_integer_constant(SB_Context* context, uint64_t value);
 
+SB_Node* sb_node_alloca(SB_Context* context);
+
 SB_Node* sb_node_add(SB_Context* context, SB_Node* left, SB_Node* right);
 SB_Node* sb_node_sub(SB_Context* context, SB_Node* left, SB_Node* right);
 SB_Node* sb_node_mul(SB_Context* context, SB_Node* left, SB_Node* right);
 SB_Node* sb_node_sdiv(SB_Context* context, SB_Node* left, SB_Node* right);
+
+SB_Node* sb_node_load(SB_Context* context, SB_Node* control, SB_Node* store, SB_Node* address);
+SB_Node* sb_node_store(SB_Context* context, SB_Node* control, SB_Node* store, SB_Node* address, SB_Node* value);
 
 SB_Node* sb_node_start_control(SB_Context* context, SB_Node* start);
 SB_Node* sb_node_start_store(SB_Context* context, SB_Node* start);

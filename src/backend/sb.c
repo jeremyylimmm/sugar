@@ -146,6 +146,10 @@ SB_Node* sb_node_integer_constant(SB_Context* context, uint64_t value) {
     return node;
 }
 
+SB_Node* sb_node_alloca(SB_Context* context) {
+    return make_node(context, SB_OP_ALLOCA, 0);
+}
+
 enum {
     BINARY_LEFT,
     BINARY_RIGHT,
@@ -173,6 +177,38 @@ SB_Node* sb_node_mul(SB_Context* context, SB_Node* left, SB_Node* right) {
 
 SB_Node* sb_node_sdiv(SB_Context* context, SB_Node* left, SB_Node* right) {
     return make_binary(context, SB_OP_SDIV, left, right);
+}
+
+enum {
+    LOAD_CONTROL,
+    LOAD_STORE,
+    LOAD_ADDRESS,
+    NUM_LOAD_INS
+};
+
+SB_Node* sb_node_load(SB_Context* context, SB_Node* control, SB_Node* store, SB_Node* address) {
+    SB_Node* node = make_node(context, SB_OP_LOAD, NUM_LOAD_INS);
+    SET_INPUT(node, LOAD_CONTROL, control);
+    SET_INPUT(node, LOAD_STORE, store);
+    SET_INPUT(node, LOAD_ADDRESS, address);
+    return node;
+}
+
+enum {
+    STORE_CONTROL,
+    STORE_STORE,
+    STORE_ADDRESS,
+    STORE_VALUE,
+    NUM_STORE_INS
+};
+
+SB_Node* sb_node_store(SB_Context* context, SB_Node* control, SB_Node* store, SB_Node* address, SB_Node* value) {
+    SB_Node* node = make_node(context, SB_OP_STORE, NUM_STORE_INS);
+    SET_INPUT(node, STORE_CONTROL, control);
+    SET_INPUT(node, STORE_STORE, store);
+    SET_INPUT(node, STORE_ADDRESS, address);
+    SET_INPUT(node, STORE_VALUE, value);
+    return node;
 }
 
 enum {
