@@ -68,5 +68,7 @@ int main() {
     sb_opt(sbc, lir_proc);
     sb_visualize(sbc, lir_proc);
 
+    sb_generate_x64(sbc, lir_proc);
+
     return 0;
 }

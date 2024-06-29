@@ -10,12 +10,14 @@ typedef enum {
 } SB_OpCode;
 #undef X
 
-#define X(name, mnemonic, ...) mnemonic,
-static const char* sb_op_name[] = {
-    "illegal",
-    #include "ops.inc"
-};
-#undef X
+#define SB_BIT(x) (1 << (x))
+
+typedef enum {
+    SB_NODE_FLAG_NONE = 0,
+    SB_NODE_FLAG_PRODUCES_CONTROL = SB_BIT(0),
+    SB_NODE_FLAG_STARTS_BLOCK = SB_BIT(1),
+    SB_NODE_FLAG_IS_PINNED = SB_BIT(2)
+} SB_NodeFlags;
 
 typedef struct SB_User SB_User;
 typedef struct SB_Node SB_Node;
@@ -29,6 +31,7 @@ struct SB_User {
 struct SB_Node {
     int id;
     SB_OpCode op;
+    SB_NodeFlags flags;
 
     int in_count;
     SB_Node** _ins;
@@ -83,3 +86,5 @@ SB_Node* sb_node_branch_false(SB_Context* context, SB_Node* branch);
 void sb_opt(SB_Context* context, SB_Proc* proc);
 
 void sb_visualize(SB_Context* context, SB_Proc* proc);
+
+void sb_generate_x64(SB_Context* context, SB_Proc* proc);

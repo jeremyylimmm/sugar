@@ -84,11 +84,12 @@ static void allocate_ins(SB_Context* context, SB_Node* node, int in_count) {
     node->_ins = arena_array(&context->arena, SB_Node*, in_count);
 }
 
-static SB_Node* make_node(SB_Context* context, SB_OpCode op, int in_count) {
+static SB_Node* make_node(SB_Context* context, SB_OpCode op, int in_count, SB_NodeFlags flags) {
     SB_Node* node = arena_type(&context->arena, SB_Node);
 
     node->id = context->next_id++;  
     node->op = op;
+    node->flags = flags;
 
     allocate_ins(context, node, in_count);
 
@@ -112,7 +113,7 @@ static void assign_input(SB_Context* context, SB_Node* node, SB_Node* input, int
 #define SET_INPUT(node, index, value) assign_input(context, node, value, index)
 
 SB_Node* sb_node_start(SB_Context* context) {
-    return make_node(context, SB_OP_START, 0);
+    return make_node(context, SB_OP_START, 0, SB_NODE_FLAG_PRODUCES_CONTROL | SB_NODE_FLAG_STARTS_BLOCK | SB_NODE_FLAG_IS_PINNED);
 }
 
 enum {
@@ -123,7 +124,7 @@ enum {
 };
 
 SB_Node* sb_node_end(SB_Context* context, SB_Node* control, SB_Node* store, SB_Node* return_value) {
-    SB_Node* node = make_node(context, SB_OP_END, NUM_END_INS);
+    SB_Node* node = make_node(context, SB_OP_END, NUM_END_INS, SB_NODE_FLAG_IS_PINNED);
     SET_INPUT(node, END_CONTROL, control);
     SET_INPUT(node, END_STORE, store);
     SET_INPUT(node, END_RETURN_VALUE, return_value);
@@ -136,18 +137,18 @@ static void init_data_field(SB_Context* context, SB_Node* node, int size) {
 }
 
 SB_Node* sb_node_null(SB_Context* context) {
-    return make_node(context, SB_OP_NULL, 0);
+    return make_node(context, SB_OP_NULL, 0, SB_NODE_FLAG_NONE);
 }
 
 SB_Node* sb_node_integer_constant(SB_Context* context, uint64_t value) {
-    SB_Node* node = make_node(context, SB_OP_INTEGER_CONSTANT, 0);
+    SB_Node* node = make_node(context, SB_OP_INTEGER_CONSTANT, 0, SB_NODE_FLAG_NONE);
     init_data_field(context, node, sizeof(value));
     memcpy(node->data, &value, sizeof(value));
     return node;
 }
 
 SB_Node* sb_node_alloca(SB_Context* context) {
-    return make_node(context, SB_OP_ALLOCA, 0);
+    return make_node(context, SB_OP_ALLOCA, 0, SB_NODE_FLAG_NONE);
 }
 
 enum {
@@ -157,7 +158,7 @@ enum {
 };
 
 static SB_Node* make_binary(SB_Context* context, SB_OpCode op, SB_Node* left, SB_Node* right) {
-    SB_Node* node = make_node(context, op, NUM_BINARY_INS);
+    SB_Node* node = make_node(context, op, NUM_BINARY_INS, SB_NODE_FLAG_NONE);
     SET_INPUT(node, BINARY_LEFT, left);
     SET_INPUT(node, BINARY_RIGHT, right);
     return node;
@@ -187,7 +188,7 @@ enum {
 };
 
 SB_Node* sb_node_load(SB_Context* context, SB_Node* control, SB_Node* store, SB_Node* address) {
-    SB_Node* node = make_node(context, SB_OP_LOAD, NUM_LOAD_INS);
+    SB_Node* node = make_node(context, SB_OP_LOAD, NUM_LOAD_INS, SB_NODE_FLAG_NONE);
     SET_INPUT(node, LOAD_CONTROL, control);
     SET_INPUT(node, LOAD_STORE, store);
     SET_INPUT(node, LOAD_ADDRESS, address);
@@ -203,7 +204,7 @@ enum {
 };
 
 SB_Node* sb_node_store(SB_Context* context, SB_Node* control, SB_Node* store, SB_Node* address, SB_Node* value) {
-    SB_Node* node = make_node(context, SB_OP_STORE, NUM_STORE_INS);
+    SB_Node* node = make_node(context, SB_OP_STORE, NUM_STORE_INS, SB_NODE_FLAG_IS_PINNED);
     SET_INPUT(node, STORE_CONTROL, control);
     SET_INPUT(node, STORE_STORE, store);
     SET_INPUT(node, STORE_ADDRESS, address);
@@ -218,14 +219,14 @@ enum {
 
 SB_Node* sb_node_start_control(SB_Context* context, SB_Node* start) {
     assert(start->op == SB_OP_START);
-    SB_Node* node = make_node(context, SB_OP_START_CONTROL, NUM_PROJECTION_INS);
+    SB_Node* node = make_node(context, SB_OP_START_CONTROL, NUM_PROJECTION_INS, SB_NODE_FLAG_PRODUCES_CONTROL | SB_NODE_FLAG_IS_PINNED);
     SET_INPUT(node, PROJECTION_INPUT, start);
     return node;
 }
 
 SB_Node* sb_node_start_store(SB_Context* context, SB_Node* start) {
     assert(start->op == SB_OP_START);
-    SB_Node* node = make_node(context, SB_OP_START_STORE, NUM_PROJECTION_INS);
+    SB_Node* node = make_node(context, SB_OP_START_STORE, NUM_PROJECTION_INS, SB_NODE_FLAG_NONE);
     SET_INPUT(node, PROJECTION_INPUT, start);
     return node;
 }
@@ -237,18 +238,18 @@ enum {
 };
 
 SB_Node* sb_node_branch(SB_Context* context, SB_Node* control, SB_Node* predicate) {
-    SB_Node* node = make_node(context, SB_OP_BRANCH, NUM_BRANCH_INS);
+    SB_Node* node = make_node(context, SB_OP_BRANCH, NUM_BRANCH_INS, SB_NODE_FLAG_PRODUCES_CONTROL | SB_NODE_FLAG_IS_PINNED);
     SET_INPUT(node, BRANCH_CONTROL, control);
     SET_INPUT(node, BRANCH_PREDICATE, predicate);
     return node;
 }
 
 SB_Node* sb_node_region(SB_Context* context) {
-    return make_node(context, SB_OP_REGION, 0);
+    return make_node(context, SB_OP_REGION, 0, SB_NODE_FLAG_PRODUCES_CONTROL | SB_NODE_FLAG_STARTS_BLOCK | SB_NODE_FLAG_IS_PINNED);
 }
 
 SB_Node* sb_node_phi(SB_Context* context) {
-    return make_node(context, SB_OP_PHI, 0);
+    return make_node(context, SB_OP_PHI, 0, SB_NODE_FLAG_IS_PINNED);
 }
 
 void sb_set_region_inputs(SB_Context* context, SB_Node* region, int input_count, SB_Node** inputs) {
@@ -276,14 +277,14 @@ void sb_set_phi_inputs(SB_Context* context, SB_Node* phi, SB_Node* region, int i
 
 SB_Node* sb_node_branch_true(SB_Context* context, SB_Node* branch) {
     assert(branch->op == SB_OP_BRANCH);
-    SB_Node* node = make_node(context, SB_OP_BRANCH_TRUE, NUM_PROJECTION_INS);
+    SB_Node* node = make_node(context, SB_OP_BRANCH_TRUE, NUM_PROJECTION_INS, SB_NODE_FLAG_PRODUCES_CONTROL | SB_NODE_FLAG_STARTS_BLOCK | SB_NODE_FLAG_IS_PINNED);
     SET_INPUT(node, PROJECTION_INPUT, branch);
     return node;
 }
 
 SB_Node* sb_node_branch_false(SB_Context* context, SB_Node* branch) {
     assert(branch->op == SB_OP_BRANCH);
-    SB_Node* node = make_node(context, SB_OP_BRANCH_FALSE, NUM_PROJECTION_INS);
+    SB_Node* node = make_node(context, SB_OP_BRANCH_FALSE, NUM_PROJECTION_INS, SB_NODE_FLAG_PRODUCES_CONTROL | SB_NODE_FLAG_STARTS_BLOCK | SB_NODE_FLAG_IS_PINNED);
     SET_INPUT(node, PROJECTION_INPUT, branch);
     return node;
 }

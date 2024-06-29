@@ -1,8 +1,8 @@
 {
     var bruh;
 
-    while bruh {
-        bruh = 2;
+    while 1 {
+        bruh = 1;
     }
 
     return 20 * 21;

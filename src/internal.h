@@ -8,6 +8,8 @@
 
 #define LENGTH(array) (sizeof(array)/sizeof((array)[0]))
 
+#define BIT(x) (1 << (x))
+
 typedef struct {
     size_t base;
     size_t allocated;
